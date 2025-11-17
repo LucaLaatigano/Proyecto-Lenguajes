@@ -1,25 +1,28 @@
 import javax.swing.*;
 import java.awt.*;
+import java.io.*;
 import java.util.HashMap;
 import java.util.Map;
 
 public class NotasApp {
 
-    // ==== MATERIAS DISPONIBLES ====
+    static final String ARCHIVO_DATOS = "notas_data.bin";
+
     static final String[] MATERIAS = {
             "Lenguajes II",
             "Estructura de Datos",
             "Sistemas I"
     };
 
-    // ==== MODELO DE DATOS ====
-    static class MateriaNotas {
+    static class MateriaNotas implements Serializable {
+        private static final long serialVersionUID = 1L;
         double[] parciales = new double[3];
         double[] tps = new double[2];
         double notaFinal = 0.0;
     }
 
-    static class Student {
+    static class Student implements Serializable {
+        private static final long serialVersionUID = 1L;
         String username;
         String nombre;
         Map<String, MateriaNotas> notasPorMateria = new HashMap<>();
@@ -27,7 +30,6 @@ public class NotasApp {
         public Student(String username, String nombre) {
             this.username = username;
             this.nombre = nombre;
-            // Inicializar las materias con estructuras vacías
             for (String m : MATERIAS) {
                 notasPorMateria.put(m, new MateriaNotas());
             }
@@ -38,7 +40,7 @@ public class NotasApp {
         String username;
         String password;
         boolean esProfesor;
-        String alumnoUsername; // si es alumno, a cuál Student corresponde
+        String alumnoUsername;
 
         public User(String username, String password, boolean esProfesor, String alumnoUsername) {
             this.username = username;
@@ -48,29 +50,50 @@ public class NotasApp {
         }
     }
 
-    // "Base de datos" en memoria
     static Map<String, User> usuarios = new HashMap<>();
     static Map<String, Student> alumnos = new HashMap<>();
 
     public static void main(String[] args) {
-        // Datos de ejemplo
-        Student a1 = new Student("alu1", "Juan Pérez");
-        Student a2 = new Student("alu2", "María Gómez");
+        cargarDatos();
 
-        alumnos.put(a1.username, a1);
-        alumnos.put(a2.username, a2);
+        if (alumnos.isEmpty()) {
+            Student a1 = new Student("alu1", "Juan Pérez");
+            Student a2 = new Student("alu2", "María Gómez");
 
-        // Usuario profesor
+            alumnos.put(a1.username, a1);
+            alumnos.put(a2.username, a2);
+
+            guardarDatos();
+        }
+
         usuarios.put("prof", new User("prof", "1234", true, null));
-
-        // Usuarios alumnos
         usuarios.put("alu1", new User("alu1", "1111", false, "alu1"));
         usuarios.put("alu2", new User("alu2", "2222", false, "alu2"));
 
         SwingUtilities.invokeLater(() -> new LoginFrame().setVisible(true));
     }
 
-    // ==== FRAME LOGIN ====
+    static void guardarDatos() {
+        try (ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(ARCHIVO_DATOS))) {
+            out.writeObject(alumnos);
+        } catch (IOException e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(null, "Error al guardar datos: " + e.getMessage());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    static void cargarDatos() {
+        File archivo = new File(ARCHIVO_DATOS);
+        if (!archivo.exists()) return;
+
+        try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(archivo))) {
+            alumnos = (Map<String, Student>) in.readObject();
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+    }
+
     static class LoginFrame extends JFrame {
         private JTextField userField;
         private JPasswordField passField;
@@ -95,10 +118,12 @@ public class NotasApp {
             JButton loginBtn = new JButton("Iniciar sesión");
             loginBtn.addActionListener(e -> hacerLogin());
 
-            panel.add(new JLabel()); // espacio
+            panel.add(new JLabel());
             panel.add(loginBtn);
 
             add(panel);
+
+            getRootPane().setDefaultButton(loginBtn);
         }
 
         private void hacerLogin() {
@@ -112,7 +137,6 @@ public class NotasApp {
                 return;
             }
 
-            // Login correcto → elegir materia
             if (u.esProfesor) {
                 new SeleccionMateriaFrame(true, null).setVisible(true);
             } else {
@@ -125,10 +149,9 @@ public class NotasApp {
         }
     }
 
-    // ==== FRAME SELECCIÓN DE MATERIA ====
     static class SeleccionMateriaFrame extends JFrame {
         private final boolean esProfesor;
-        private final Student student; // solo si es alumno
+        private final Student student;
         private JComboBox<String> comboMaterias;
 
         public SeleccionMateriaFrame(boolean esProfesor, Student student) {
@@ -168,7 +191,6 @@ public class NotasApp {
         }
     }
 
-    // ==== PANEL GRÁFICO ====
     static class GraficoNotasPanel extends JPanel {
         private MateriaNotas datos;
 
@@ -185,16 +207,15 @@ public class NotasApp {
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
-
             if (datos == null) return;
 
-            double[] valores = new double[6];
-            valores[0] = datos.parciales[0];
-            valores[1] = datos.parciales[1];
-            valores[2] = datos.parciales[2];
-            valores[3] = datos.tps[0];
-            valores[4] = datos.tps[1];
-            valores[5] = datos.notaFinal;
+            Graphics2D g2 = (Graphics2D) g;
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            double[] valores = {
+                    datos.parciales[0], datos.parciales[1], datos.parciales[2],
+                    datos.tps[0], datos.tps[1], datos.notaFinal
+            };
 
             String[] etiquetas = { "P1", "P2", "P3", "TP1", "TP2", "Final" };
 
@@ -203,9 +224,9 @@ public class NotasApp {
             int margen = 40;
             int anchoBarra = (width - 2 * margen) / valores.length;
 
-            // Eje Y: hasta 10
-            g.drawLine(margen, height - margen, width - margen, height - margen); // eje x
-            g.drawLine(margen, margen, margen, height - margen); // eje y
+            g2.setColor(Color.BLACK);
+            g2.drawLine(margen, height - margen, width - margen, height - margen);
+            g2.drawLine(margen, margen, margen, height - margen);
 
             for (int i = 0; i < valores.length; i++) {
                 double val = valores[i];
@@ -213,18 +234,30 @@ public class NotasApp {
                 if (val > 10) val = 10;
 
                 int barHeight = (int) ((val / 10.0) * (height - 2 * margen));
-                int x = margen + i * anchoBarra + 5;
+                int x = margen + i * anchoBarra + 10;
                 int y = height - margen - barHeight;
 
-                g.fillRect(x, y, anchoBarra - 10, barHeight);
-                g.drawString(etiquetas[i], x + (anchoBarra - 10) / 3, height - margen + 15);
+                if (i == 5) {
+                    if (val >= 7) g2.setColor(new Color(50, 200, 50));
+                    else if (val >= 4) g2.setColor(new Color(255, 200, 0));
+                    else g2.setColor(new Color(220, 50, 50));
+                } else {
+                    g2.setColor(new Color(100, 150, 240));
+                }
+
+                g2.fillRect(x, y, anchoBarra - 20, barHeight);
+
+                g2.setColor(Color.BLACK);
+                g2.drawRect(x, y, anchoBarra - 20, barHeight);
+
+                g2.drawString(etiquetas[i], x + (anchoBarra - 20) / 3, height - margen + 15);
+                g2.drawString(String.format("%.1f", val), x + (anchoBarra - 20) / 3, y - 5);
             }
 
-            g.drawString("Notas (0-10)", 5, 15);
+            g2.drawString("Escala (0-10)", 5, 15);
         }
     }
 
-    // ==== FRAME PROFESOR ====
     static class ProfesorFrame extends JFrame {
         private final String materia;
         private Student alumnoActual;
@@ -238,16 +271,14 @@ public class NotasApp {
 
             setTitle("Panel Profesor - " + materia);
             setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-            setSize(800, 480);
+            setSize(850, 520);
             setLocationRelativeTo(null);
 
-            // Crear arreglo de alumnos
             alumnosArray = alumnos.values().toArray(new Student[0]);
             if (alumnosArray.length > 0) {
                 alumnoActual = alumnosArray[0];
             }
 
-            // Panel superior: materia + botones
             JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
             topPanel.add(new JLabel("Materia: " + materia));
 
@@ -255,11 +286,11 @@ public class NotasApp {
             listaBtn.addActionListener(e -> mostrarListaAlumnos());
             topPanel.add(listaBtn);
 
-            JButton verNotasBtn = new JButton("Cargar notas");
+            JButton verNotasBtn = new JButton("Ver tabla global");
             verNotasBtn.addActionListener(e -> mostrarTablaNotas());
             topPanel.add(verNotasBtn);
 
-            JButton materiasBtn = new JButton("Materias");
+            JButton materiasBtn = new JButton("Cambiar Materia");
             materiasBtn.addActionListener(e -> {
                 new SeleccionMateriaFrame(true, null).setVisible(true);
                 dispose();
@@ -273,49 +304,54 @@ public class NotasApp {
             });
             topPanel.add(logoutBtn);
 
-            // Panel central: alumno actual + campos de notas
             JPanel centerPanel = new JPanel(new GridLayout(7, 2, 5, 5));
-            centerPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            centerPanel.setBorder(BorderFactory.createTitledBorder("Carga de Notas"));
 
             centerPanel.add(new JLabel("Alumno actual:"));
             alumnoLabel = new JLabel(alumnoActual != null ? alumnoActual.username + " - " + alumnoActual.nombre : "Ninguno");
+            alumnoLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
             centerPanel.add(alumnoLabel);
 
-            centerPanel.add(new JLabel("Parcial 1:"));
-            p1Field = new JTextField();
-            centerPanel.add(p1Field);
+            centerPanel.add(new JLabel("Parcial 1 (20%):"));
+            p1Field = new JTextField(); centerPanel.add(p1Field);
 
-            centerPanel.add(new JLabel("Parcial 2:"));
-            p2Field = new JTextField();
-            centerPanel.add(p2Field);
+            centerPanel.add(new JLabel("Parcial 2 (25%):"));
+            p2Field = new JTextField(); centerPanel.add(p2Field);
 
-            centerPanel.add(new JLabel("Parcial 3:"));
-            p3Field = new JTextField();
-            centerPanel.add(p3Field);
+            centerPanel.add(new JLabel("Parcial 3 (25%):"));
+            p3Field = new JTextField(); centerPanel.add(p3Field);
 
-            centerPanel.add(new JLabel("TP 1:"));
-            tp1Field = new JTextField();
-            centerPanel.add(tp1Field);
+            centerPanel.add(new JLabel("TP 1 (15%):"));
+            tp1Field = new JTextField(); centerPanel.add(tp1Field);
 
-            centerPanel.add(new JLabel("TP 2:"));
-            tp2Field = new JTextField();
-            centerPanel.add(tp2Field);
+            centerPanel.add(new JLabel("TP 2 (15%):"));
+            tp2Field = new JTextField(); centerPanel.add(tp2Field);
 
-            centerPanel.add(new JLabel("Nota final (calculada):"));
+            centerPanel.add(new JLabel("Nota final:"));
             finalField = new JTextField();
             finalField.setEditable(false);
             centerPanel.add(finalField);
 
-            // Panel inferior: botón guardar + gráfico
             JPanel bottomPanel = new JPanel(new BorderLayout());
+
             JPanel botonesPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-            JButton guardarBtn = new JButton("Calcular y guardar");
+
+            JButton borrarBtn = new JButton("Borrar Notas");
+            borrarBtn.setBackground(new Color(255, 100, 100));
+            borrarBtn.setForeground(Color.WHITE);
+            borrarBtn.addActionListener(e -> borrarNotas());
+            botonesPanel.add(borrarBtn);
+
+            JButton guardarBtn = new JButton("Calcular y Guardar");
+            guardarBtn.setFont(new Font("SansSerif", Font.BOLD, 12));
             guardarBtn.addActionListener(e -> guardarNotas());
             botonesPanel.add(guardarBtn);
+
             bottomPanel.add(botonesPanel, BorderLayout.NORTH);
 
             MateriaNotas datosIniciales = getDatosMateriaAlumnoActual();
             graficoPanel = new GraficoNotasPanel(datosIniciales);
+            graficoPanel.setBorder(BorderFactory.createTitledBorder("Gráfico de Rendimiento"));
             bottomPanel.add(graficoPanel, BorderLayout.CENTER);
 
             setLayout(new BorderLayout());
@@ -323,7 +359,6 @@ public class NotasApp {
             add(centerPanel, BorderLayout.CENTER);
             add(bottomPanel, BorderLayout.SOUTH);
 
-            // Cargar datos del alumno actual
             cargarDatosAlumnoActual();
         }
 
@@ -353,10 +388,7 @@ public class NotasApp {
         }
 
         private void mostrarListaAlumnos() {
-            if (alumnosArray.length == 0) {
-                JOptionPane.showMessageDialog(this, "No hay alumnos cargados.", "Info", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
+            if (alumnosArray.length == 0) return;
 
             String[] nombres = new String[alumnosArray.length];
             for (int i = 0; i < alumnosArray.length; i++) {
@@ -364,10 +396,9 @@ public class NotasApp {
             }
 
             JList<String> lista = new JList<>(nombres);
-            lista.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
             JScrollPane scrollPane = new JScrollPane(lista);
 
-            JDialog dialog = new JDialog(this, "Lista de alumnos", true);
+            JDialog dialog = new JDialog(this, "Seleccionar Alumno", true);
             dialog.setSize(400, 300);
             dialog.setLocationRelativeTo(this);
             dialog.setLayout(new BorderLayout());
@@ -383,20 +414,13 @@ public class NotasApp {
                     dialog.dispose();
                 }
             });
-            JButton cancelarBtn = new JButton("Cancelar");
-            cancelarBtn.addActionListener(e -> dialog.dispose());
             botones.add(seleccionarBtn);
-            botones.add(cancelarBtn);
             dialog.add(botones, BorderLayout.SOUTH);
-
             dialog.setVisible(true);
         }
 
         private void mostrarTablaNotas() {
-            if (alumnosArray.length == 0) {
-                JOptionPane.showMessageDialog(this, "No hay alumnos cargados.", "Info", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
+            if (alumnosArray.length == 0) return;
 
             String[] columnas = {"Usuario", "Nombre", "P1", "P2", "P3", "TP1", "TP2", "Final"};
             Object[][] data = new Object[alumnosArray.length][8];
@@ -413,45 +437,72 @@ public class NotasApp {
                 data[i][4] = mn.parciales[2];
                 data[i][5] = mn.tps[0];
                 data[i][6] = mn.tps[1];
-                data[i][7] = mn.notaFinal;
+                data[i][7] = String.format("%.2f", mn.notaFinal);
             }
 
             JTable tabla = new JTable(data, columnas);
-            JScrollPane scrollPane = new JScrollPane(tabla);
-
-            JDialog dialog = new JDialog(this, "Notas de todos los alumnos - " + materia, true);
+            JDialog dialog = new JDialog(this, "Planilla - " + materia, true);
             dialog.setSize(700, 300);
             dialog.setLocationRelativeTo(this);
-            dialog.add(scrollPane);
+            dialog.add(new JScrollPane(tabla));
             dialog.setVisible(true);
+        }
+
+        private void borrarNotas() {
+            if (alumnoActual == null) return;
+
+            int confirm = JOptionPane.showConfirmDialog(this,
+                    "¿Estás seguro de borrar todas las notas de " + alumnoActual.nombre + " en " + materia + "?\nEsta acción no se puede deshacer.",
+                    "Confirmar borrado", JOptionPane.YES_NO_OPTION);
+
+            if (confirm == JOptionPane.YES_OPTION) {
+                MateriaNotas mn = getDatosMateriaAlumnoActual();
+                mn.parciales = new double[3];
+                mn.tps = new double[2];
+                mn.notaFinal = 0.0;
+
+                NotasApp.guardarDatos();
+
+                cargarDatosAlumnoActual();
+                JOptionPane.showMessageDialog(this, "Notas eliminadas.");
+            }
         }
 
         private void guardarNotas() {
             if (alumnoActual == null) return;
-
             try {
                 MateriaNotas mn = getDatosMateriaAlumnoActual();
 
-                mn.parciales[0] = Double.parseDouble(p1Field.getText());
-                mn.parciales[1] = Double.parseDouble(p2Field.getText());
-                mn.parciales[2] = Double.parseDouble(p3Field.getText());
-                mn.tps[0] = Double.parseDouble(tp1Field.getText());
-                mn.tps[1] = Double.parseDouble(tp2Field.getText());
+                mn.parciales[0] = validarNota(p1Field.getText());
+                mn.parciales[1] = validarNota(p2Field.getText());
+                mn.parciales[2] = validarNota(p3Field.getText());
+                mn.tps[0] = validarNota(tp1Field.getText());
+                mn.tps[1] = validarNota(tp2Field.getText());
 
                 mn.notaFinal = calcularNotaFinal(mn);
 
                 finalField.setText(String.format("%.2f", mn.notaFinal));
                 graficoPanel.repaint();
 
+                NotasApp.guardarDatos();
+
                 JOptionPane.showMessageDialog(this,
-                        "Notas guardadas correctamente para " + alumnoActual.nombre + " en " + materia,
+                        "Notas guardadas para " + alumnoActual.nombre + ".",
                         "Éxito", JOptionPane.INFORMATION_MESSAGE);
 
             } catch (NumberFormatException ex) {
                 JOptionPane.showMessageDialog(this,
-                        "Ingresá solo números en las notas (usar punto para decimales).",
-                        "Error de formato", JOptionPane.ERROR_MESSAGE);
+                        "Error en los datos: " + ex.getMessage(),
+                        "Error", JOptionPane.ERROR_MESSAGE);
             }
+        }
+
+        private double validarNota(String texto) throws NumberFormatException {
+            double val = Double.parseDouble(texto);
+            if (val < 0 || val > 10) {
+                throw new NumberFormatException("La nota debe estar entre 0 y 10.");
+            }
+            return val;
         }
 
         private double calcularNotaFinal(MateriaNotas mn) {
@@ -460,12 +511,10 @@ public class NotasApp {
             double p3 = mn.parciales[2];
             double tp1 = mn.tps[0];
             double tp2 = mn.tps[1];
-
             return p1 * 0.20 + p2 * 0.25 + p3 * 0.25 + tp1 * 0.15 + tp2 * 0.15;
         }
     }
 
-    // ==== FRAME ALUMNO ====
     static class AlumnoFrame extends JFrame {
         private final Student student;
         private final String materia;
@@ -478,34 +527,30 @@ public class NotasApp {
 
             setTitle("Panel Alumno - " + s.nombre + " (" + materia + ")");
             setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-            setSize(550, 380);
+            setSize(600, 450);
             setLocationRelativeTo(null);
 
             JPanel infoPanel = new JPanel(new GridLayout(6, 2, 5, 5));
-            infoPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            infoPanel.setBorder(BorderFactory.createTitledBorder("Mis Calificaciones"));
 
             infoPanel.add(new JLabel("Parcial 1:"));
-            p1Label = new JLabel();
-            infoPanel.add(p1Label);
+            p1Label = new JLabel(); infoPanel.add(p1Label);
 
             infoPanel.add(new JLabel("Parcial 2:"));
-            p2Label = new JLabel();
-            infoPanel.add(p2Label);
+            p2Label = new JLabel(); infoPanel.add(p2Label);
 
             infoPanel.add(new JLabel("Parcial 3:"));
-            p3Label = new JLabel();
-            infoPanel.add(p3Label);
+            p3Label = new JLabel(); infoPanel.add(p3Label);
 
             infoPanel.add(new JLabel("TP 1:"));
-            tp1Label = new JLabel();
-            infoPanel.add(tp1Label);
+            tp1Label = new JLabel(); infoPanel.add(tp1Label);
 
             infoPanel.add(new JLabel("TP 2:"));
-            tp2Label = new JLabel();
-            infoPanel.add(tp2Label);
+            tp2Label = new JLabel(); infoPanel.add(tp2Label);
 
             infoPanel.add(new JLabel("Nota final:"));
             finalLabel = new JLabel();
+            finalLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
             infoPanel.add(finalLabel);
 
             MateriaNotas mn = student.notasPorMateria.get(materia);
@@ -515,8 +560,7 @@ public class NotasApp {
             }
             graficoPanel = new GraficoNotasPanel(mn);
 
-            // Botones: Materias + Cerrar sesión
-            JButton materiasBtn = new JButton("Materias");
+            JButton materiasBtn = new JButton("Volver a Materias");
             materiasBtn.addActionListener(e -> {
                 new SeleccionMateriaFrame(false, student).setVisible(true);
                 dispose();
@@ -540,13 +584,10 @@ public class NotasApp {
             add(infoPanel, BorderLayout.NORTH);
             add(bottomPanel, BorderLayout.CENTER);
 
-            actualizarLabels();
+            actualizarLabels(mn);
         }
 
-        private void actualizarLabels() {
-            MateriaNotas mn = student.notasPorMateria.get(materia);
-            if (mn == null) return;
-
+        private void actualizarLabels(MateriaNotas mn) {
             p1Label.setText(String.valueOf(mn.parciales[0]));
             p2Label.setText(String.valueOf(mn.parciales[1]));
             p3Label.setText(String.valueOf(mn.parciales[2]));
